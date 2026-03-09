@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: 86dumpster-angi-leads
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DRS_API_TOKEN
+        value: 86dumpster_4cb831580f46963847a9b2c7223fbcad
+      - key: DRS_DEV_KEY
+        value: 3215acc664a747c4f56ae2785608236e3997dbb47bf584d1570519eed1ecae5cb2d2ce1332f19bfa872800a04ebc2a47c39d0cbf6c84616de1103c0b8dab696a$c2bca267
+      - key: WEBHOOK_SECRET
+        value: 86dumpster-angi-2026
