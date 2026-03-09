@@ -217,6 +217,30 @@ def create_crm_customer(lead, city_info):
     return result
 
 
+def create_customer_note(customer_id, lead, size):
+    """Add a note to the customer with lead comments and details."""
+    note_parts = []
+    if lead["comments"]:
+        note_parts.append(lead["comments"])
+    if size:
+        note_parts.append(f"Requested size: {size} yard")
+    if lead["job_number"]:
+        note_parts.append(f"Angi Job #: {lead['job_number']}")
+    if lead["lead_type"]:
+        note_parts.append(f"Lead Type: {lead['lead_type']}")
+
+    if not note_parts:
+        return None
+
+    message = " | ".join(note_parts)
+
+    result = drs_post(f"create/crm_customer_note/{customer_id}/", {
+        "author_id": "28",
+        "message": message
+    })
+    return result
+
+
 # ─── Webhook Endpoint ───────────────────────────────────────────────────────────
 
 @app.route("/webhook/angi-lead", methods=["POST"])
@@ -241,19 +265,35 @@ def webhook_angi_lead():
         logging.warning("Webhook received empty body")
         return jsonify({"error": "No email body provided"}), 400
 
-    # Check if this is a "New Opportunity" (no customer details)
-    if "new opportunity" in email_body.lower() and "customer information" not in email_body.lower():
+    # Check if this is an email we should skip (no customer details)
+    skip_patterns = ["new opportunity", "sp message"]
+    email_lower = email_body.lower()
+    if any(p in email_lower for p in skip_patterns) and "customer information" not in email_lower:
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "type": "skipped",
-            "reason": "New Opportunity email (no customer details)",
+            "reason": "No customer details in email",
             "name": "N/A",
         }
         recent_leads.insert(0, log_entry)
         if len(recent_leads) > MAX_LOG:
             recent_leads.pop()
-        logging.info("Skipped: New Opportunity email")
-        return jsonify({"status": "skipped", "reason": "New Opportunity - no customer details"}), 200
+        logging.info("Skipped: Email without customer details")
+        return jsonify({"status": "skipped", "reason": "No customer details"}), 200
+
+    # Also skip if no "Customer Information" section at all
+    if "customer information" not in email_lower:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type": "skipped",
+            "reason": "No 'Customer Information' section found",
+            "name": "N/A",
+        }
+        recent_leads.insert(0, log_entry)
+        if len(recent_leads) > MAX_LOG:
+            recent_leads.pop()
+        logging.info("Skipped: No Customer Information section")
+        return jsonify({"status": "skipped", "reason": "No Customer Information section"}), 200
 
     # Parse the lead
     lead = parse_angi_lead(email_body)
@@ -302,12 +342,24 @@ def webhook_angi_lead():
 
     if success:
         logging.info(f"Created CRM customer: {lead['firstname']} {lead['lastname']} (ID: {customer_id})")
+
+        # Add customer note with comments and lead details
+        note_added = False
+        if customer_id and (lead["comments"] or lead["job_number"]):
+            note_result = create_customer_note(customer_id, lead, size)
+            if note_result and (note_result.get("success") or note_result.get("status") == "Success"):
+                note_added = True
+                logging.info(f"Added note to customer {customer_id}")
+            else:
+                logging.warning(f"Could not add note to customer {customer_id}: {note_result}")
+
         return jsonify({
             "status": "created",
             "customer_id": customer_id,
             "name": f"{lead['firstname']} {lead['lastname']}",
             "city": lead["city"],
             "size": size or "default 20yd",
+            "note_added": note_added,
         }), 201
     else:
         logging.error(f"Failed to create customer: {result}")
