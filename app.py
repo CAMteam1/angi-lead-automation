@@ -265,6 +265,26 @@ def webhook_angi_lead():
         logging.warning("Webhook received empty body")
         return jsonify({"error": "No email body provided"}), 400
 
+    # Strip HTML if present (Power Automate sends HTML email body)
+    if "<" in email_body and ">" in email_body:
+        logging.info("Detected HTML email body, stripping tags...")
+        # Replace common HTML elements with newlines for better parsing
+        clean = email_body
+        clean = re.sub(r'<br\s*/?>', '\n', clean, flags=re.IGNORECASE)
+        clean = re.sub(r'</(div|p|tr|td|li|h[1-6])>', '\n', clean, flags=re.IGNORECASE)
+        clean = re.sub(r'<[^>]+>', ' ', clean)  # Remove all remaining tags
+        # Decode HTML entities
+        clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+        clean = clean.replace('&nbsp;', ' ').replace('&#39;', "'").replace('&quot;', '"')
+        # Clean up whitespace
+        clean = re.sub(r'[ \t]+', ' ', clean)  # Collapse spaces
+        clean = re.sub(r'\n\s*\n', '\n', clean)  # Collapse blank lines
+        email_body = clean.strip()
+        logging.info(f"Cleaned email body (first 200 chars): {email_body[:200]}")
+
+    # Log raw body for debugging (first 500 chars)
+    logging.info(f"Processing email body (first 500 chars): {email_body[:500]}")
+
     # Check if this is an email we should skip (no customer details)
     skip_patterns = ["new opportunity", "sp message"]
     email_lower = email_body.lower()
